@@ -77,9 +77,16 @@ class Automate(object):
             current_dir = os.getcwd()
             des = issue.description.split('\n')
             seqids = list()
+            fasta = False
+            fasta_files = list()
             for item in des:
                 item = item.upper()
-                seqids.append(item.rstrip())
+                if fasta:
+                    fasta_files.append(item.rstrip())
+                else:
+                    seqids.append(item.rstrip())
+                if 'FASTA' in item.rstrip():
+                    fasta = True
             f = open(work_dir + '/seqid.txt', 'w')
             for seqid in seqids:
                 f.write(seqid + '\n')
@@ -87,10 +94,13 @@ class Automate(object):
             os.chdir('/mnt/nas/MiSeq_Backup')
             cmd = 'python2 /mnt/nas/MiSeq_Backup/file_linker.py {}/seqid.txt {}'.format(work_dir, work_dir)
             os.system(cmd)
-            os.chdir('/mnt/nas/External_MiSeq_Backup')
-            cmd = 'python2 /mnt/nas/External_MiSeq_Backup/file_extractor.py {}/seqid.txt {}'.format(work_dir, work_dir)
-            os.system(cmd)
             os.chdir(current_dir)
+            f = open(work_dir + '/seqid.txt', 'w')
+            for seqid in fasta_files:
+                f.write(seqid + '\n')
+            cmd = 'python2 /mnt/nas/WGSspades/file_extractor.py {}/seqid.txt {} /mnt/nas/'.format(work_dir, work_dir)
+            f.close()
+            os.system(cmd)
             f = open('CLARK.sh')
             lines = f.readlines()
             f.close()
@@ -101,7 +111,7 @@ class Automate(object):
                     '-C /home/ubuntu/Programs/CLARKSCV1.2.3.2/ {}\n'.format(work_dir, work_dir))
             f.write('cd /mnt/nas/bio_requests/{}\n'.format(str(issue.id)))
             f.write('python upload_file.py {}\n'.format(str(issue.id)))
-            f.write('rm -rf *.fastq* */*fastq* RedmineAPI running_logs *json')
+            f.write('rm -rf *.fastq* */*fastq* *.fasta RedmineAPI running_logs *json upload_file.py')
             f.close()
 
             shutil.copy('upload_file.py', work_dir + '/upload_file.py')
