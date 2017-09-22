@@ -108,7 +108,7 @@ class Automate(object):
             for line in lines:
                 f.write(line)
             f.write('python -m metagenomefilter.automateCLARK -s {} -d /mnt/nas/Adam/RefseqDatabase/Bos_taurus/ '
-                    '-C /home/ubuntu/Programs/CLARKSCV1.2.3.2/ {}\n'.format(work_dir, work_dir))
+                    '-C /home/ubuntu/Programs/CLARKSCV1.2.3.2/ -cl {}\n'.format(work_dir, work_dir))
             f.write('cd /mnt/nas/bio_requests/{}\n'.format(str(issue.id)))
             f.write('python upload_file.py {}\n'.format(str(issue.id)))
             f.write('rm -rf *.fastq* */*fastq* *.fasta RedmineAPI running_logs *json upload_file.py')
