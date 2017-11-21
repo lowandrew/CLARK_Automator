@@ -106,6 +106,8 @@ class Automate(object):
             f.close()
             f = open(work_dir + '/' + str(issue.id) + '.sh', 'w')
             for line in lines:
+                if 'job_%j' in line:
+                    line = line.replace('job', 'biorequest_' + str(issue.id) + '_job')
                 f.write(line)
             f.write('python -m metagenomefilter.automateCLARK -s {} -d /mnt/nas/Adam/RefseqDatabase/Bos_taurus/ '
                     '-C /home/ubuntu/Programs/CLARKSCV1.2.3.2/ -cl {}\n'.format(work_dir, work_dir))
