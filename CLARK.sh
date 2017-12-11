@@ -14,5 +14,5 @@
 #SBATCH -e /mnt/nas/slurm_logs/job_%j.err
 
 # Your code goes here. Example activates a virtualenv and then runs a script that needs that virtualenv.
-source /mnt/nas/Virtual_Environments/Generic_Redmine/bin/activate
+source /mnt/nas/Virtual_Environments/clarktest/bin/activate
 
