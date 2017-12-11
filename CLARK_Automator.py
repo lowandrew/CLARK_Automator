@@ -3,8 +3,36 @@ import os
 from RedmineAPI.Access import RedmineAccess
 from RedmineAPI.Configuration import Setup
 import shutil
+import glob
 
 from Utilities import CustomKeys, CustomValues
+
+
+def verify_fasta_files_present(seqid_list, fasta_dir):
+    missing_fastas = list()
+    for seqid in seqid_list:
+        if len(glob.glob(fasta_dir + '/' + seqid + '*.fasta')) == 0:
+            missing_fastas.append(seqid)
+    return missing_fastas
+
+
+def verify_fastq_files_present(seqid_list, fastq_dir):
+    """
+    Makes sure that FASTQ files specified in seqid_list have been successfully copied/linked to directory specified
+    by fastq_dir.
+    :param seqid_list: List with SEQIDs.
+    :param fastq_dir: Directory that FASTQ files (both forward and reverse reads should have been copied to
+    :return: List of SEQIDs that did not have files associated with them.
+    """
+    missing_fastqs = list()
+    for seqid in seqid_list:
+        # Check forward.
+        if len(glob.glob(fastq_dir + '/' + seqid + '*R1*fastq*')) == 0:
+            missing_fastqs.append(seqid)
+        # Check reverse. Only add to list of missing if forward wasn't present.
+        if len(glob.glob(fastq_dir + '/' + seqid + '*R2*fastq*')) == 0 and seqid not in missing_fastqs:
+            missing_fastqs.append(seqid)
+    return missing_fastqs
 
 
 class Automate(object):
@@ -70,37 +98,52 @@ class Automate(object):
             issue.redmine_msg = "Beginning the process for: %s" % issue.subject
             self.access_redmine.update_status_inprogress(issue, self.botmsg)
             ##########################################################################################
+            issue.redmine_msg = ''
             print("Getting CLARK automation going.")
             os.makedirs('/mnt/nas/bio_requests/' + str(issue.id))
             # Remember the directory we're in.
-            work_dir = '/mnt/nas/bio_requests/' + str(issue.id)
+            work_dir = os.path.join('/mnt/nas/bio_requests', str(issue.id))
             current_dir = os.getcwd()
             des = issue.description.split('\n')
             seqids = list()
             fasta = False
-            fasta_files = list()
             for item in des:
                 item = item.upper()
-                if fasta:
-                    fasta_files.append(item.rstrip())
-                else:
-                    seqids.append(item.rstrip())
                 if 'FASTA' in item.rstrip():
                     fasta = True
+                    continue
+                seqids.append(item.rstrip())
             f = open(work_dir + '/seqid.txt', 'w')
             for seqid in seqids:
                 f.write(seqid + '\n')
             f.close()
-            os.chdir('/mnt/nas/MiSeq_Backup')
-            cmd = 'python2 /mnt/nas/MiSeq_Backup/file_linker.py {}/seqid.txt {}'.format(work_dir, work_dir)
-            os.system(cmd)
-            os.chdir(current_dir)
-            f = open(work_dir + '/seqid.txt', 'w')
-            for seqid in fasta_files:
-                f.write(seqid + '\n')
-            cmd = 'python2 /mnt/nas/WGSspades/file_extractor.py {}/seqid.txt {} /mnt/nas/'.format(work_dir, work_dir)
-            f.close()
-            os.system(cmd)
+            # If we're looking at a FASTQ request, try to get the files specified by SEQIDs, and then
+            # check that they were successfully extracted. Warn users if we couldn't find FASTQ files for
+            # SEQIDs that they specified.
+            if not fasta:
+                os.chdir('/mnt/nas/MiSeq_Backup')
+                cmd = 'python2 /mnt/nas/MiSeq_Backup/file_linker.py {}/seqid.txt {}'.format(work_dir, work_dir)
+                os.system(cmd)
+                os.chdir(current_dir)
+                missing_fastqs = verify_fastq_files_present(seqids, work_dir)
+                if len(missing_fastqs) > 0:
+                    self.access_redmine.update_issue_to_author(issue, 'WARNING: Could not find FASTQ files for the '
+                                                                      'following SEQIDs: {}\nPlease verify that these'
+                                                                      ' are valid SEQIDs, create a new issue, and '
+                                                                      'try again.'.format(str(missing_fastqs)))
+            # If we're looking at a FASTA request, try to get the files specified by SEQIDs, and then
+            # check that they were successfully extracted. Warn users if we couldn't find FASTA files for
+            # SEQIDs that they specified.
+            if fasta:
+                cmd = 'python2 /mnt/nas/WGSspades/file_extractor.py {}/seqid.txt {} /mnt/nas/'.format(work_dir, work_dir)
+                os.system(cmd)
+                missing_fastas = verify_fasta_files_present(seqids, work_dir)
+                if len(missing_fastas) > 0:
+                    self.access_redmine.update_issue_to_author(issue, 'WARNING: Could not find FASTA files for the '
+                                                                      'following SEQIDs: {}\nPlease verify that these'
+                                                                      ' are valid SEQIDs, create a new issue, and '
+                                                                      'try again.'.format(str(missing_fastas)))
+            # Create the shell script we'll use to submit our autoclark job to SLURM.
             f = open('CLARK.sh')
             lines = f.readlines()
             f.close()
@@ -110,12 +153,13 @@ class Automate(object):
                     line = line.replace('job', 'biorequest_' + str(issue.id) + '_job')
                 f.write(line)
             f.write('python -m metagenomefilter.automateCLARK -s {} -d /mnt/nas/Adam/RefseqDatabase/Bos_taurus/ '
-                    '-C /home/ubuntu/Programs/CLARKSCV1.2.3.2/ -cl {}\n'.format(work_dir, work_dir))
+                    '-C /home/ubuntu/Programs/CLARKSCV1.2.3.2/ {}\n'.format(work_dir, work_dir))
             f.write('cd /mnt/nas/bio_requests/{}\n'.format(str(issue.id)))
             f.write('python upload_file.py {}\n'.format(str(issue.id)))
             f.write('rm -rf *.fastq* */*fastq* *.fasta RedmineAPI running_logs *json upload_file.py')
             f.close()
 
+            # Copy files to the biorequest folder that we'll need to upload results to Redmine.
             shutil.copy('upload_file.py', work_dir + '/upload_file.py')
             shutil.copytree('RedmineAPI', work_dir + '/RedmineAPI')
             # Submit the batch script to slurm.
